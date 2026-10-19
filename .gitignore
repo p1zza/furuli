@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+logs_chall1/
+logs_chall2/

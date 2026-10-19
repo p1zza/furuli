@@ -1,0 +1,42 @@
+services:
+
+  # ---------------------------------------------------------------
+  # Задание 1: «Портал шаблонов» — LFI / RFI (OWASP A03 Injection)
+  # ---------------------------------------------------------------
+  chall1-lfi-rfi:
+    build:
+      context: ./chall1_lfi_rfi
+      args:
+        # уникальный флаг можно задать здесь:
+        # FLAG=$(python3 -c "import secrets;print('FLAG{'+secrets.token_hex(8)+'}')") 
+        BUILDKIT_INLINE_CACHE: "1"
+    image: mnemozina/chall1-lfi-rfi:latest
+    container_name: mnemozina_chall1
+    ports:
+      - "5050:5050"
+    environment:
+      AUDIT_DB: /data/audit.db
+      PORT: "5050"
+    volumes:
+      # база аудита действий пользователей — на volume хоста
+      - ./logs_chall1:/data
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------
+  # Задание 2: «Хранилище документов „Лета“» — PATH TRAVERSAL
+  # (OWASP A01 Broken Access Control)
+  # ---------------------------------------------------------------
+  chall2-path-traversal:
+    build:
+      context: ./chall2_path_traversal
+    image: mnemozina/chall2-path-traversal:latest
+    container_name: mnemozina_chall2
+    ports:
+      - "5051:5051"
+    environment:
+      AUDIT_DB: /data/audit.db
+      PORT: "5051"
+    volumes:
+      # база аудита действий пользователей — на volume хоста
+      - ./logs_chall2:/data
+    restart: unless-stopped
