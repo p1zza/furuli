@@ -1,42 +1,30 @@
 services:
 
   # ---------------------------------------------------------------
-  # Задание 1: «Портал шаблонов» — LFI / RFI (OWASP A03 Injection)
+  # Challenge 1: LFI / RFI  (OWASP A03:2021 - Injection)  port 5050
   # ---------------------------------------------------------------
-  chall1-lfi-rfi:
-    build:
-      context: ./mnemozina_chall1
-      args:
-        # уникальный флаг можно задать здесь:
-        # FLAG=$(python3 -c "import secrets;print('FLAG{'+secrets.token_hex(8)+'}')") 
-        BUILDKIT_INLINE_CACHE: "1"
-    image: mnemozina/mnemozina_chall1:latest
-    container_name: mnemozina_chall1
+  challenge-lfi:
+    build: ./challenge-lfi
+    container_name: ctf-lfi
     ports:
-      - "5050:5050"
-    environment:
-      AUDIT_DB: /data/audit.db
-      PORT: "5050"
+      - "5050:5000"
     volumes:
-      # база аудита действий пользователей — на volume хоста
-      - ./logs_chall1:/data
+      - ./logs/lfi:/data          # separate SQLite action-log DB lives here
+    environment:
+      - LOG_DB=/data/userlog.db
     restart: unless-stopped
 
   # ---------------------------------------------------------------
-  # Задание 2: «Хранилище документов „Лета“» — PATH TRAVERSAL
-  # (OWASP A01 Broken Access Control)
+  # Challenge 2: PATH TRAVERSAL (OWASP A01:2021 - Broken Access
+  # Control)  port 5051
   # ---------------------------------------------------------------
-  chall2-path-traversal:
-    build:
-      context: ./mnemozina_chall2
-    image: mnemozina/mnemozina_chall2:latest
-    container_name: mnemozina_chall2
+  challenge-traversal:
+    build: ./challenge-traversal
+    container_name: ctf-traversal
     ports:
-      - "5051:5051"
-    environment:
-      AUDIT_DB: /data/audit.db
-      PORT: "5051"
+      - "5051:5000"
     volumes:
-      # база аудита действий пользователей — на volume хоста
-      - ./logs_chall2:/data
+      - ./logs/traversal:/data    # separate SQLite action-log DB lives here
+    environment:
+      - LOG_DB=/data/userlog.db
     restart: unless-stopped

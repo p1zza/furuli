@@ -1,6 +1,5 @@
 __pycache__/
 *.pyc
-logs_chall1/
-logs_chall2/
-solve_chall1.py
-solve_chall2.py
+logs/*
+!logs/**/.gitkeep
+README.md
