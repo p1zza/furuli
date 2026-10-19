@@ -5,12 +5,12 @@ services:
   # ---------------------------------------------------------------
   chall1-lfi-rfi:
     build:
-      context: ./chall1_lfi_rfi
+      context: ./mnemozina_chall1
       args:
         # уникальный флаг можно задать здесь:
         # FLAG=$(python3 -c "import secrets;print('FLAG{'+secrets.token_hex(8)+'}')") 
         BUILDKIT_INLINE_CACHE: "1"
-    image: mnemozina/chall1-lfi-rfi:latest
+    image: mnemozina/mnemozina_chall1:latest
     container_name: mnemozina_chall1
     ports:
       - "5050:5050"
@@ -28,8 +28,8 @@ services:
   # ---------------------------------------------------------------
   chall2-path-traversal:
     build:
-      context: ./chall2_path_traversal
-    image: mnemozina/chall2-path-traversal:latest
+      context: ./mnemozina_chall2
+    image: mnemozina/mnemozina_chall2:latest
     container_name: mnemozina_chall2
     ports:
       - "5051:5051"
